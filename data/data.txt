@@ -1,1 +1,7 @@
-My dog's name is Sunny.
+Here is some information about the user:
+My favorite artists are Kendrick Lamar, Black Eyed Peas, Mick Gordon, H.E.R., Ms. Lauryn Hill, and Steely Dan.
+My dog's name is Mazee.
+I go to Carnegie Mellon University, studying Information Systems as a rising Senior.
+I play video games.
+I play Valorant for the CMU Esports Valorant Club Team.
+I want to get better at ux design.
