@@ -49,8 +49,8 @@ print("Ensuring OpenAI access...")
 
 openai_key = os.environ.get('API_KEY')  # OpenAI key 
 
-openai.api_key = openai_key  # Set openai key directly in library
-openai.Engine.list()  # Testing API access
+# openai.api_key = openai_key  # Set openai key directly in library
+# openai.Engine.list()  # Testing API access
 
 llm_model = "gpt-4"  # OpenAI model
 temp = 0.0  # Model temperature
@@ -61,13 +61,12 @@ print("OpenAI API access validated! \n\n\n")
 
 print("Building knowledgebase...")
 
-docs = load_dataset('jamescalam/langchain-docs-23-06-27', split='train')  # Example dataset testing
-docs
+data = load_dataset("wikipedia", "20220301.simple", split='train[:10000]')
+data
 
 print("\t dataset loaded")
 
-chunks = []  # List to store chunks
-tokenizer_name = tiktoken.encoding_for_model('gpt-4')
+tokenizer_name = tiktoken.encoding_for_model(llm_model)
 tokenizer = tiktoken.get_encoding(tokenizer_name.name)
 
 def tiktoken_len(text):  # Tiktoken_len returns length of tokens
@@ -77,24 +76,17 @@ def tiktoken_len(text):  # Tiktoken_len returns length of tokens
     )
     return len(tokens)
 
-text_splitter = RecursiveCharacterTextSplitter( 
-    chunk_size = 500,  chunk_overlap = 20,
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=400, chunk_overlap=20,
     length_function = tiktoken_len,
     separators = ["\n\n", "\n", " ", ""]
 )
 
-for page in tqdm(docs):  # Process the docs into more chunks using this approach.
-    if len(page['text']) < 200:  # If page content is short we can skip
-        continue
-    texts = text_splitter.split_text(page['text'])
-    chunks.extend([{
-        'id': page['id'] + f'-{i}',
-        'text': texts[i],
-        'url': page['url'],
-        'chunk': i
-    } for i in range(len(texts))])
+chunks = text_splitter.split_text(data[6]['text'])[:3]
 
-print("\t processed docs into chunks")
+print(chunks)
+
+print(tiktoken_len(chunks[0]), tiktoken_len(chunks[1]), tiktoken_len(chunks[2]))
 
 print("Knowledgebase created! \n\n\n")
 
@@ -103,10 +95,10 @@ print("Knowledgebase created! \n\n\n")
 
 print("Creating embeddings...")
 
-embed_model = "text-embedding-ada-002"
+model_name = 'text-embedding-ada-002'
 
 embed = OpenAIEmbeddings(
-    model = embed_model,
+    model = model_name,
     openai_api_key = openai_key
 )
 
@@ -116,6 +108,8 @@ texts = [
 ]
  
 res = embed.embed_documents(texts)
+
+print(len(res), len(res[0]))
 
 print("Embedding creation complete! \n\n\n")
 
@@ -131,14 +125,15 @@ pinecone.init(api_key=pine_key, environment=env)
 
 index_name = 'gpt-4-langchain-docs'
 
-print(len(res[0]))  # Testing if dimensions is correct
-
-if index_name not in pinecone.list_indexes():  # Check if index already exists
-    print("Please allow some time for index to create")
-    pinecone.create_index(index_name, dimension = len(res[0]), metric = 'cosine')
+if index_name not in pinecone.list_indexes():
+    pinecone.create_index(  # Create a new index
+        name = index_name,
+        metric = 'cosine',
+        dimension = len(res[0])  # 1536 dim of text-embedding-ada-002
+    )
 
 index = pinecone.Index(index_name)  # Connect to index
-index.describe_index_stats()  # View index stats
+print(index.describe_index_stats())  # View index stats
 
 print("Vector DB created! \n\n\n")
 
@@ -147,32 +142,36 @@ print("Vector DB created! \n\n\n")
 
 print("Performing indexing...")
 
-batch_size = 100  # How many embeddings we create and insert at once
+batch_limit = 100
 
-for i in tqdm(range(0, len(chunks), batch_size)):
-    i_end = min(len(chunks), i + batch_size)  # Find end of batch
-    meta_batch = chunks[i:i_end]  # Get ids
-    ids_batch = [x['id'] for x in meta_batch]  # Get texts to encode
-    texts = [x['text'] for x in meta_batch]  # Create embeddings (try-except added to avoid RateLimitError)
-    try:
-        res = openai.Embedding.create(input = texts, engine = embed_model)
-    except:
-        done = False
-        while not done:
-            time.sleep(5)
-            try:
-                res = openai.Embedding.create(input = texts, engine = embed_model)
-                done = True
-            except:
-                pass
-    embeds = [record['embedding'] for record in res['data']]
-    meta_batch = [{  # Cleanup metadata
-        'text': x['text'],
-        'chunk': x['chunk'],
-        'url': x['url']
-    } for x in meta_batch]
-    to_upsert = list(zip(ids_batch, embeds, meta_batch))  # Upsert to Pinecone
-    index.upsert(vectors=to_upsert)
+texts = []
+metadatas = []
+
+for i, record in enumerate(tqdm(data)):
+    metadata = {  # First get metadata fields for this record
+        'wiki-id': str(record['id']), 
+        'source': record['url'],
+        'title': record['title']
+    }
+    record_texts = text_splitter.split_text(record['text'])  # Now we create chunks from the record text
+    record_metadatas = [{  # Create individual metadata dicts for each chunk
+        "chunk": j, "text": text, **metadata
+    } for j, text in enumerate(record_texts)]  # Append these to current batches
+    texts.extend(record_texts)
+    metadatas.extend(record_metadatas)
+    if len(texts) >= batch_limit:  # If we have reached the batch_limit we can add texts
+        ids = [str(uuid4()) for _ in range(len(texts))]
+        embeds = embed.embed_documents(texts)
+        index.upsert(vectors=zip(ids, embeds, metadatas))
+        texts = []
+        metadatas = []
+
+if len(texts) > 0:
+    ids = [str(uuid4()) for _ in range(len(texts))]
+    embeds = embed.embed_documents(texts)
+    index.upsert(vectors=zip(ids, embeds, metadatas))
+
+print(index.describe_index_stats())
 
 print("Pinecone index populated! \n\n\n")
 
@@ -181,39 +180,37 @@ print("Pinecone index populated! \n\n\n")
 
 print("Creating vector store and retrieving relevant sources...")
 
+text_field = "text"
+
+index = pinecone.Index(index_name)  # Switch back to normal index for langchain
+
+vectorstore = Pinecone(
+    index, embed.embed_query, text_field
+)
+
 query = "how do I use the LLMChain in LangChain?"
 
-res = openai.Embedding.create(input = [query], engine = embed_model)  # Gpt4 + Langchain
-xq = res['data'][0]['embedding']  # Retrieve from Pinecone
-res = index.query(xq, top_k=5, include_metadata = True)  # Get relevant contexts (including the questions)
+vectorstore.similarity_search(  # Pinecone + Langchain
+    query,  # our search query
+    k=3  # return 3 most relevant docs
+)
 
 print("Retrieval complete! \n\n\n")
 
 
-##### Augmentation and Answer Generation #####
+##### RetrievalQA example #####
 
-print("Augmenting query...")
+llm = ChatOpenAI(model_name = llm_model,  
+                 openai_api_key = openai_key,
+                 temperature = temp)  
 
-contexts = [item['metadata']['text'] for item in res['matches']]  # Get list of retrieved text
-augmented_query = "\n\n---\n\n".join(contexts)+"\n\n-----\n\n"+query
-
-# OpenAI's Chat API example
-
-primer = f"""You are Q&A bot. A highly intelligent system that answers
-user questions based on the information provided by the user above
-each question. If the information can not be found in the information
-provided by the user you truthfully say "I don't know".
-"""
-
-res = openai.ChatCompletion.create(
-    model = llm_model,
-    messages=[  # System message to 'prime' the model
-        {"role": "system", "content": primer},
-        {"role": "user", "content": augmented_query}
-    ]
+qa = RetrievalQA.from_chain_type(  # LLM must answer  question based on vectorstore
+    llm = llm,
+    chain_type = "stuff",
+    retriever = vectorstore.as_retriever()
 )
 
-print(f"Gpt-4 Langchain & Pinecone Result:\n {res} \n\n\n")
+print(f"Pinecone docs + Langchain Result:\n{qa.run(query)} \n\n\n")
 
 # directory = 'chatgpt-retrieval/data'
 # loader = DirectoryLoader(directory, use_multithreading = True)  
