@@ -1,3 +1,5 @@
+# RetrievalQA example
+
 '''
 This script sets up the environment for using the OpenAI GPT-4 model, Pinecone vector search engine, and CMU's MMR search to perform 
 document similarity search.
@@ -21,9 +23,10 @@ Refer to the following for more information:
 '''
 
 
-##### Import necessary modules for OpenAI, PineCone, GPT4 #####
+##### Import necessary modules for LangChain, PineCone #####
 
 import os
+import sys
 import time
 import openai
 import pinecone
@@ -32,11 +35,9 @@ import tiktoken
 from uuid import uuid4
 from tqdm.auto import tqdm
 from datasets import load_dataset # Example dataset
-from typing_extensions import Concatenate
 from langchain.chains import RetrievalQA
 from langchain.vectorstores import Pinecone
 from langchain.chat_models import ChatOpenAI
-from IPython.display import display, Markdown
 from langchain import LLMChain, OpenAI, PromptTemplate
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.document_loaders import DirectoryLoader, TextLoader
@@ -197,12 +198,9 @@ vectorstore.similarity_search(  # Pinecone + Langchain
 
 print("Retrieval complete! \n\n\n")
 
-
-##### RetrievalQA example #####
-
 llm = ChatOpenAI(model_name = llm_model,  
                  openai_api_key = openai_key,
-                 temperature = temp)  
+                 temperature = temp)
 
 qa = RetrievalQA.from_chain_type(  # LLM must answer  question based on vectorstore
     llm = llm,
@@ -210,8 +208,16 @@ qa = RetrievalQA.from_chain_type(  # LLM must answer  question based on vectorst
     retriever = vectorstore.as_retriever()
 )
 
-print(f"Pinecone docs + Langchain Result:\n{qa.run(query)} \n\n\n")
+def get_answer(query):  # Function to get answer
+    answer = "Result: " + qa.run(query) + "\n\n\n"
+    return answer
 
-# directory = 'chatgpt-retrieval/data'
-# loader = DirectoryLoader(directory, use_multithreading = True)  
-# documents = loader.load()
+while True:  # Main loop
+    query = input("Prompt: ")
+    if query in ['quit', 'q', 'exit']:
+        sys.exit()
+    try:  # Get the answer using the question-answering chain
+        answer = get_answer(query)
+        print(answer)
+    except Exception as e:
+        print("An error occurred:", str(e))
