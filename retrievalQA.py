@@ -33,10 +33,8 @@ import pinecone
 import tiktoken
 import traceback
 
-from uuid import uuid4
 from tqdm.auto import tqdm
 from langchain.chains import RetrievalQA
-from typing_extensions import Concatenate
 from langchain.vectorstores import Pinecone
 from langchain.chat_models import ChatOpenAI
 from langchain import LLMChain, OpenAI, PromptTemplate
@@ -62,18 +60,17 @@ print("OpenAI API access validated! \n\n\n")
 
 print("Building knowledgebase...\n")
 
-# Load documents using DirectoryLoader
-directory = 'data'
+directory = 'data'  # Load documents using DirectoryLoader
 
 def load_docs(directory):
+  print("Loading documents:")
   loader = DirectoryLoader(directory, show_progress=True)
   res = loader.load()
   return res
 
 docs = load_docs(directory)
-print("\n", f"Docs: {docs}", "\n")
 
-# Processing documents using tokenizer
+# Process documents using tokenizer
 tokenizer_name = tiktoken.encoding_for_model(llm_model)
 tokenizer = tiktoken.get_encoding(tokenizer_name.name)
 
@@ -92,8 +89,8 @@ text_splitter = RecursiveCharacterTextSplitter(
 )
 
 chunks = []
-counter = 0  # Initialize a counter
 
+print("\n","Chunking documents:\t")
 for document in tqdm(docs):  # Process the docs into more chunks
     if len(document.page_content) < 200:  # If page content is short we can skip
         continue
@@ -167,6 +164,7 @@ print("Upserting data to index... \n")
 
 batch_size = 100  # how many embeddings we create and insert at once
 
+print("Populating index:")
 for i in tqdm(range(0, len(chunks), batch_size)):  # find end of batch
     i_end = min(len(chunks), i + batch_size)
     meta_batch = chunks[i:i_end]  # get ids
@@ -198,65 +196,44 @@ for i in tqdm(range(0, len(chunks), batch_size)):  # find end of batch
 print("\n", "Index populated! \n\n\n")
 
 
-# ##### RETRIEVAL #####
+##### RETRIEVAL #####
 
-# print("Creating vector store and retrieving relevant sources...")
+print("Creating vector store and retrieving relevant sources...\n")
 
-# text_field = "text"
+text_field = "text"
 
-# index = pinecone.Index(index_name)  # switch back to normal index for langchain
+index = pinecone.Index(index_name)  # switch back to normal index for langchain
 
-# vectorstore = Pinecone(index, embed.embed_query, text_field)
+vectorstore = Pinecone(index, embed.embed_query, text_field)
 
-# primer = f"""You are a Q&A bot that translates English to French. 
-#              If the information can not be found in the information
-#              provided by the user you truthfully say "I don't know"."""
+llm = ChatOpenAI(model_name = llm_model,  
+                 openai_api_key = OPENAI_API_KEY,
+                 temperature = temp)
 
-# llm = ChatOpenAI(model_name = llm_model,  
-#                  openai_api_key = OPENAI_API_KEY,
-#                  temperature = temp)
-
-# qa = RetrievalQA.from_chain_type(  # LLM must answer  question based on vectorstore
-#     llm = llm,
-#     chain_type = "stuff",
-#     retriever = vectorstore.as_retriever())
+qa = RetrievalQA.from_chain_type(  # LLM must answer  question based on vectorstore
+    llm = llm,
+    chain_type = "stuff",
+    retriever = vectorstore.as_retriever())
  
-# def get_query():
-#     query = input("Prompt: ")
-#     return query
+def get_query():
+    query = input("Prompt: ")
+    return query
 
-# def get_answer(query):  # Function to get answer
-#     res = primer + " " + query # Combine the primer with the query
-#     answer = "Result: " + qa.run(res) + "\n\n\n"
-#     return answer
+def get_answer(query):  # Function to get answer
+    answer = "Result: " + qa.run(query) + "\n\n\n"
+    return answer
 
-# def main():
-#     while True:  # Main loop
-#         query = get_query()
-#         if query in ['quit', 'q', 'exit']:
-#             sys.exit()
-#         try:  # Get the answer using the question-answering chain
-#             answer = get_answer(query)
-#             print(answer)
-#         except Exception as e:
-#             print("An error occurred:", str(e))
+def main():
+    while True:  # Main loop
+        query = get_query()
+        if query in ['quit', 'q', 'exit']:
+            sys.exit()
+        try:  # Get the answer using the question-answering chain
+            answer = get_answer(query)
+            print(answer)
+        except Exception as e:
+            print("An error occurred:", str(e))
 
-# # system message to 'prime' the model
-# primer = f"""You are Q&A bot. A highly intelligent system that answers
-# user questions based on the information provided by the user above
-# each question. If the information can not be found in the information
-# provided by the user you truthfully say "I don't know".
-# """
-
-# res = openai.ChatCompletion.create(
-#     model="gpt-4",
-#     messages=[
-#         {"role": "system", "content": primer},
-#         {"role": "user", "content": augmented_query}
-#     ]
-# )
-
-# If we drop the I don't know truthfully part from our primer, then we see something even worse than "I don't know" — hallucinations. 
-# Clearly augmenting our queries with additional context can make a huge difference to the performance of our system.
+main()
 
 index.delete(index_name)
