@@ -1,6 +1,7 @@
 # RetrievalQA example
 
 '''
+
 This script sets up the environment for using the OpenAI GPT-4 model, Pinecone vector search engine, and CMU's MMR search to perform 
 document similarity search.
 
@@ -20,6 +21,8 @@ Refer to the following for more information:
 - Pinecone Langchain integration: https://python.langchain.com/docs/integrations/vectorstores/pinecone
 - Accessing file directory: https://python.langchain.com/docs/modules/data_connection/document_loaders/file_directory
 - Text embedding models: https://python.langchain.com/docs/modules/data_connection/text_embedding/
+- Retrieval agent: https://github.com/pinecone-io/examples/blob/master/generation/langchain/handbook/08-langchain-retrieval-agent.ipynb
+
 '''
 
 
@@ -28,19 +31,23 @@ Refer to the following for more information:
 import os
 import sys
 import time
+import traceback
+
 import openai
 import pinecone
 import tiktoken
-import traceback
-
-from tqdm.auto import tqdm
+from langchain.agents import Tool, initialize_agent
+from langchain.agents.types import AgentType
 from langchain.chains import RetrievalQA
-from langchain.vectorstores import Pinecone
+from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from langchain.chat_models import ChatOpenAI
-from langchain import LLMChain, OpenAI, PromptTemplate
-from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.document_loaders import DirectoryLoader, TextLoader
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.prompts import MessagesPlaceholder
+from langchain.schema import SystemMessage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import Pinecone
+from tqdm.auto import tqdm
 
 
 ##### OPENAI ACCESS + MODEL VARIABLES #####
@@ -53,7 +60,7 @@ print(f"LLM Model: {llm_model}, Model Temperature: {temp}", "\n")
 OPENAI_API_KEY = os.getenv('API_KEY') or 'API_KEY'
 openai.api_key = OPENAI_API_KEY
 
-print("OpenAI API access validated! \n\n\n")
+print("OpenAI API access validated!\n\n\n")
 
 
 ##### BUILDING KNOWLEDGEBASE AND SETUP TOKENIZER #####
@@ -75,18 +82,13 @@ tokenizer_name = tiktoken.encoding_for_model(llm_model)
 tokenizer = tiktoken.get_encoding(tokenizer_name.name)
 
 def tiktoken_len(text):  # Tiktoken_len returns length of tokens
-    tokens = tokenizer.encode(
-        text,
-        disallowed_special = ()
-    )
+    tokens = tokenizer.encode(text, disallowed_special = ())
     return len(tokens)
 
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size = 400,
-    chunk_overlap = 20,
+    chunk_size = 400, chunk_overlap = 20,
     length_function = tiktoken_len,
-    separators = ["\n\n", "\n", " ", ""]
-)
+    separators = ["\n\n", "\n", " ", ""])
 
 chunks = []
 
@@ -113,15 +115,10 @@ print("Creating embedding model \n")
 
 embed_model = 'text-embedding-ada-002'
 
-embed = OpenAIEmbeddings(
-    model = embed_model,
-    openai_api_key = OPENAI_API_KEY
-)
+embed = OpenAIEmbeddings(model = embed_model, openai_api_key = OPENAI_API_KEY)
 
-texts = [
-    'this is the first chunk of text',
-    'then another second chunk of text is here'
-]
+texts = ['this is the first chunk of text',
+         'then another second chunk of text is here']
 
 res = embed.embed_documents(texts)
 
@@ -142,11 +139,9 @@ pinecone.init(api_key = pine_key, environment = env)
 index_name = 'gpt-4-langchain-docs'
 
 if index_name not in pinecone.list_indexes():  # Create a new index
-    pinecone.create_index(
-        name = index_name,
-        metric = 'cosine',
-        dimension = len(res[0])  # 1536 dim of text-embedding-ada-002
-    )
+    pinecone.create_index(name = index_name,
+                          metric = 'cosine',
+                          dimension = len(res[0]))  # 1536 dim of text-embedding-ada-002
 
 index = pinecone.Index(index_name)  # Connect to Pinecone index
 
@@ -165,6 +160,7 @@ print("Upserting data to index... \n")
 batch_size = 100  # how many embeddings we create and insert at once
 
 print("Populating index:")
+
 for i in tqdm(range(0, len(chunks), batch_size)):  # find end of batch
     i_end = min(len(chunks), i + batch_size)
     meta_batch = chunks[i:i_end]  # get ids
@@ -196,44 +192,77 @@ for i in tqdm(range(0, len(chunks), batch_size)):  # find end of batch
 print("\n", "Index populated! \n\n\n")
 
 
-##### RETRIEVAL #####
-
-print("Creating vector store and retrieving relevant sources...\n")
+##### CREATING VECTOR STORE AND QUERYING #####
 
 text_field = "text"
 
-index = pinecone.Index(index_name)  # switch back to normal index for langchain
+index = pinecone.Index(index_name)  # Switch back to normal index for langchain
 
 vectorstore = Pinecone(index, embed.embed_query, text_field)
 
-llm = ChatOpenAI(model_name = llm_model,  
-                 openai_api_key = OPENAI_API_KEY,
+query = "Who is H.E.R."
+
+vectorstore.similarity_search(query, k = 3)  # Return 3 most relevant docs
+
+
+##### INITIALIZE RETRIEVALQA OBJECT (GQA) #####
+
+query = "can you calculate the circumference of a circle that has a radius of 7.81mm?"
+
+llm = ChatOpenAI(openai_api_key = OPENAI_API_KEY, model_name = llm_model,
                  temperature = temp)
 
-qa = RetrievalQA.from_chain_type(  # LLM must answer  question based on vectorstore
-    llm = llm,
-    chain_type = "stuff",
-    retriever = vectorstore.as_retriever())
- 
-def get_query():
-    query = input("Prompt: ")
-    return query
+conversational_memory = ConversationBufferWindowMemory(memory_key = 'chat_history', 
+                                                       k = 5, return_messages = True)
 
-def get_answer(query):  # Function to get answer
-    answer = "Result: " + qa.run(query) + "\n\n\n"
-    return answer
+qa = RetrievalQA.from_chain_type(llm = llm, chain_type = "stuff",
+                                 retriever = vectorstore.as_retriever())  # LLM must answer the question based on VectorDB
 
-def main():
-    while True:  # Main loop
-        query = get_query()
-        if query in ['quit', 'q', 'exit']:
-            sys.exit()
-        try:  # Get the answer using the question-answering chain
-            answer = get_answer(query)
-            print(answer)
-        except Exception as e:
-            print("An error occurred:", str(e))
 
-main()
+##### CREATING CONVERSATIONAL AGENT #####
 
-index.delete(index_name)
+retrievalqa_desc = "Use this tool to answer questions that are relevant to local information and sources provided by the user"
+
+tools = [Tool(name = 'RetrievalQA', func = qa.run,
+              description = retrievalqa_desc)]
+
+system_message = """You are a Q&A chat agent. You should use the tools provided to answer user questions.
+                    You should not answer questions that are outside of the scope of local information
+                    and sources provided. If a user asks a question unrelated to the local information and sources
+                    provided, reply with "I don't know"."""
+
+conversational_agent = initialize_agent(agent = AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+                                        tools = tools,
+                                        llm = llm,
+                                        memory = conversational_memory,
+                                        early_stopping_method = "generate", 
+                                        agent_kwargs = {"system_message": system_message},
+                                        verbose = True)
+
+print(conversational_agent.run(query))
+
+# def get_query():
+#     query = input("Prompt: ")
+#     return query
+
+# def get_answer(query):  # Function to get answer
+#     messages = [SystemMessage(content = primer),
+#                 AIMessage(content = "Hello! How can I help you?"),
+#                 HumanMessage(content = query)]
+#     answer = "Result: " + qa.run(messages) + "\n\n\n"
+#     return answer
+
+# def main():
+#     while True:  # Main loop
+#         query = get_query()
+#         if query in ['quit', 'q', 'exit']:
+#             sys.exit()
+#         try:  # Get the answer using the question-answering chain
+#             answer = get_answer(query)
+#             print(answer)
+#         except Exception as e:
+#             print("An error occurred:", str(e))
+
+# main()
+
+#index.delete(index_name)
