@@ -4,3 +4,4 @@ persist/
 .DS_Store
 .chroma/
 dependencysetup.py
+data
