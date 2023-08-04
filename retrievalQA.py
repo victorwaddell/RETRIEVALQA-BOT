@@ -22,7 +22,7 @@ Refer to the following for more information:
 - Accessing file directory: https://python.langchain.com/docs/modules/data_connection/document_loaders/file_directory
 - Text embedding models: https://python.langchain.com/docs/modules/data_connection/text_embedding/
 - Retrieval agent: https://github.com/pinecone-io/examples/blob/master/generation/langchain/handbook/08-langchain-retrieval-agent.ipynb
-
+- MMR Search: https://www.cs.cmu.edu/~jgc/publication/The_Use_MMR_Diversity_Based_LTMIR_1998.pdf
 '''
 
 
@@ -41,7 +41,7 @@ from langchain.agents.types import AgentType
 from langchain.chains import RetrievalQA
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from langchain.chat_models import ChatOpenAI
-from langchain.document_loaders import DirectoryLoader, TextLoader
+from langchain.document_loaders import DirectoryLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.prompts import MessagesPlaceholder
 from langchain.schema import SystemMessage
@@ -198,71 +198,90 @@ text_field = "text"
 
 index = pinecone.Index(index_name)  # Switch back to normal index for langchain
 
-vectorstore = Pinecone(index, embed.embed_query, text_field)
+vectorstoredb = Pinecone(index, embed.embed_query, text_field) #create vectorstore to use as index
 
 query = "Who is H.E.R."
 
-vectorstore.similarity_search(query, k = 3)  # Return 3 most relevant docs
+print(vectorstoredb.similarity_search(query, k = 3), "\n")  # Test to ensure a return of 3 most relevant docs
 
 
 ##### INITIALIZE RETRIEVALQA OBJECT (GQA) #####
 
-query = "can you calculate the circumference of a circle that has a radius of 7.81mm?"
-
 llm = ChatOpenAI(openai_api_key = OPENAI_API_KEY, model_name = llm_model,
                  temperature = temp)
 
-conversational_memory = ConversationBufferWindowMemory(memory_key = 'chat_history', 
-                                                       k = 5, return_messages = True)
-
-qa = RetrievalQA.from_chain_type(llm = llm, chain_type = "stuff",
-                                 retriever = vectorstore.as_retriever())  # LLM must answer the question based on VectorDB
+qa = RetrievalQA.from_chain_type(llm = llm, chain_type = "stuff",  # Question answering chain the LLM to VectorDB
+                                 retriever = vectorstoredb.as_retriever())  # LLM must answer the question based on VectorDB
 
 
 ##### CREATING CONVERSATIONAL AGENT #####
+
+conversational_memory = ConversationBufferWindowMemory(memory_key = 'chat_history', 
+                                                       k = 5, return_messages = True)
 
 retrievalqa_desc = "Use this tool to answer questions that are relevant to local information and sources provided by the user"
 
 tools = [Tool(name = 'RetrievalQA', func = qa.run,
               description = retrievalqa_desc)]
 
-system_message = """You are a Q&A chat agent. You should use the tools provided to answer user questions.
-                    You should not answer questions that are outside of the scope of local information
-                    and sources provided. If a user asks a question unrelated to the local information and sources
-                    provided, reply with "I don't know"."""
+system_message = """You are a Q&A chat agent.
+
+                    You should always attach an important disclaimer before and after your response that you will be likely
+                    to generate misleading information and advice when assisting with requests outside of the local
+                    knowledge base provided.
+                    
+                    You should only use the RetrievalQA tool to answer user questions that are directly relevant
+                    to locally stored information provided. If relevant information cannot be found using the RetrievalQA
+                    tool, alert the user that you do not have access to the information locally and provide a disclaimer
+                    that you will generate a response using the LLM which could lead to misinformation or inaccuracy.
+                    
+                    If a user provides their own sources and asks directly for your advice or assistance, you
+                    should attempt to assist them with but add a disclamer that the accuracy of your response is at
+                    the user's discretion and quality of sources provided.
+
+                    You should offer high quality assistance to the best of your ability to provide a good user experience
+                    but always provide disclaimers before responding to subjects and requests outside of your knowledgebase
+                    that you will potentially generate false advice or inaccurate answers as you must infer this
+                    knowledge using the LLM.
+                    
+                    End every message with an iconic pop culture reference.
+                     
+                """
 
 conversational_agent = initialize_agent(agent = AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
                                         tools = tools,
                                         llm = llm,
                                         memory = conversational_memory,
-                                        early_stopping_method = "generate", 
                                         agent_kwargs = {"system_message": system_message},
                                         verbose = True)
 
-print(conversational_agent.run(query))
+def get_query():
+    query = input("Ask a question! (type 'quit', 'q', or 'exit' to quit): ")
+    if len(query) > 1000:  # Prevent excessively long input
+        print("Your input is too long. Please try again.")
+        return get_query()
+    else:
+        return str(query)
 
-# def get_query():
-#     query = input("Prompt: ")
-#     return query
+def get_agentchain_answer(query):  # Function to get conversational agent answer
+    try:  # Get answer using the qa agent chain
+        answer = "Result: " + conversational_agent.run(query)
+        return answer
+    except Exception as e:
+        print("An error occurred while getting the answer:", str(e), "\n")
+        return None
 
-# def get_answer(query):  # Function to get answer
-#     messages = [SystemMessage(content = primer),
-#                 AIMessage(content = "Hello! How can I help you?"),
-#                 HumanMessage(content = query)]
-#     answer = "Result: " + qa.run(messages) + "\n\n\n"
-#     return answer
+def main():  # Main loop
+    while True:
+        query = get_query()
+        if query in ['quit', 'q', 'exit']:
+            sys.exit()
+        answer = get_agentchain_answer(query)
+        if answer is not None and answer.strip() != '':
+            print(answer, "\n")
 
-# def main():
-#     while True:  # Main loop
-#         query = get_query()
-#         if query in ['quit', 'q', 'exit']:
-#             sys.exit()
-#         try:  # Get the answer using the question-answering chain
-#             answer = get_answer(query)
-#             print(answer)
-#         except Exception as e:
-#             print("An error occurred:", str(e))
+main()
 
-# main()
+print("Chatbot Ended.")
 
-#index.delete(index_name)
+index.delete(index_name)
