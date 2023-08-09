@@ -39,7 +39,7 @@ import pinecone
 
 from langchain.agents import Tool, initialize_agent
 from langchain.agents.types import AgentType
-from langchain.chains import RetrievalQA, RetrievalQAWithSourcesChain
+from langchain.chains import RetrievalQA
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders import DirectoryLoader
@@ -261,20 +261,14 @@ question = "Who is H.E.R.?"  # Question to retrieve most relevant docs
 
 retriever = vectorstoredb.as_retriever(search_type = "mmr")  # Retrieve relevant splits using MMR search on vectorstore
 
-retrieved_docs = retriever.get_relevant_documents(question, k = 3)
-for doc in retrieved_docs:
-    if not hasattr(doc, 'metadata') or 'source' not in doc.metadata:
-        print(f"Document missing 'source' metadata: {doc}")
-
 
 # 5. GENERATE RETRIEVED DOCS INTO ANSWERS USING LLM WITH RETRIEVALQA CHAIN
 
 llm = ChatOpenAI(openai_api_key = OPENAI_API_KEY, model_name = llm_model,
                  temperature = temp)
 
-
-retrievalqachain = RetrievalQAWithSourcesChain.from_chain_type(llm = llm, chain_type = "stuff",  # Question answering chain the LLM to VectorDB
-                                 retriever = retriever, return_source_documents = True)  # LLM must answer the question based on VectorDB
+retrievalqachain = RetrievalQA.from_chain_type(llm = llm, chain_type = "stuff",  # Question answering chain the LLM to VectorDB
+                                 retriever = retriever)  # LLM must answer the question based on VectorDB
 
 print(retrievalqachain(question)) # Test to ensure a return of most relevant docs
 
@@ -335,8 +329,7 @@ conversational_agent = initialize_agent(agent = AgentType.CHAT_CONVERSATIONAL_RE
                                         llm = llm,
                                         memory = conversational_memory,
                                         agent_kwargs = {"system_message": system_message},
-                                        verbose = True,
-                                        return_intermediate_steps = True)
+                                        verbose = True)
 
 print("Conversational agent initialized! \n\n\n")
 

@@ -5,3 +5,4 @@ persist/
 .chroma/
 dependencysetup.py
 data
+retrievalQA.py
