@@ -25,7 +25,7 @@ def get_user_prompt():
 
 def get_query():
     query = input("Ask a question! (type 'quit', 'q', or 'exit' to quit): ")
-    if len(query) > 1000:  # Prevent excessively long input
+    if len(query) > 1500:  # Prevent excessively long input
         print("Your input is too long. Please try again.")
         return get_query()
     else:

@@ -1,7 +1,5 @@
 # Testfunctions: Functions used for testing the generativeQA systems
 
-import openai
-
 def print_setup_details(llm_model, temp, embed_model, selected_prompt, index):
     openai.Engine.list()  # validate API access
     print(f"\nOpenAI API access validated!")

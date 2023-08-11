@@ -14,7 +14,7 @@ files = load_data(directory)  # Loads data from directory
 
 from split.splitfiles import split_docs
 
-splits = split_docs(files, 1000, 20)  # Split documents (files, chunk_size, chunk_overlap)
+splits = split_docs(files, 1500, 20)  # Split documents (files, chunk_size, chunk_overlap)
 
 
 # 3. Store
@@ -41,8 +41,6 @@ from retrieval.vectordb import initialize_vectorstore
 from setup.openaivariables import embed
 
 vectorstore_db = initialize_vectorstore(index_name, embed.embed_query)  # Initializes vectorstore
-
-print(vectorstore_db.similarity_search("Who is H.E.R.?", k = 3))
 
 
 # 5. Generation
@@ -87,10 +85,12 @@ if __name__ == "__main__":  # Main prompt loop
         query = get_query()
         if query.lower() in ['quit', 'q', 'exit']:
             break
+        print(f"Vectorstore Chunks: {vectorstore_db.similarity_search(query, k = 3)}\n\n\n")
+        print(f"RetrievalQAChain Result: {qa.run(query)}\n\n\n")
         answer = "Result: " + conversational_agent.run(query)
         if answer:
-            print(answer, "\n")
-
+            print(f"""MMR Search and Retrieval of Docs: {answer}\n\n\n""")
+            
 print("Chatbot Ended.")
 
 index.delete(index_name)  # Delete index to save resources

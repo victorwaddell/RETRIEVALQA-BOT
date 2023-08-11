@@ -10,7 +10,7 @@ OPENAI_API_KEY = os.getenv('API_KEY') or 'API_KEY'
 openai.api_key = OPENAI_API_KEY
 
 llm_model = "gpt-4"  # OpenAI LLM engine model
-temp = 0.0  # OpenAI LLM temperature
+temp = 0.5  # OpenAI LLM temperature
 
 embed_model = 'text-embedding-ada-002'  # OpenAI Embedding model
 embed = OpenAIEmbeddings(model = embed_model, openai_api_key = OPENAI_API_KEY)  # Embedding variable
