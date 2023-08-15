@@ -3,6 +3,5 @@ __pycache__
 persist/
 .DS_Store
 .chroma/
-dependencysetup.py
 data
-retrievalQA.py
+db

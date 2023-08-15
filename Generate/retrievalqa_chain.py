@@ -2,8 +2,7 @@
 
 from langchain.chains import RetrievalQA
 
-def create_qa_chain(vectorstore_db, search_type, llm, chain_type):
-    retriever = vectorstore_db.as_retriever(search_type = search_type)
+def create_retrievalqa_chain(llm, chain_type, retriever):
     qa_chain = RetrievalQA.from_chain_type(llm = llm, chain_type = chain_type,
                                            retriever = retriever)
     return qa_chain

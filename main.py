@@ -3,94 +3,145 @@
 
 # 1. Load
 
-from load.loaddirectory import load_data
+directory = 'DataDirectory'  # Directory to load data from
 
-directory = 'data'  # Directory to load data from
+print(f"\n\n\nLoad:\nData directory selected: {directory}, Loading files...\n\n")
 
-files = load_data(directory)  # Loads data from directory
+from Load.load_text import load_text  # Directory loader for text files
+
+files = load_text(directory)  # Loads data from directory
 
 
 # 2. Split
 
-from split.splitfiles import split_docs
+print(f"\n\n\n2. Split:\n\n")
 
-splits = split_docs(files, 1500, 20)  # Split documents (files, chunk_size, chunk_overlap)
+# 2.1 split generic files into smaller doc objects
+
+from Setup.split_variables import chunk_size, chunk_overlap
+from Split.split_files import split_files
+
+textsplits = split_files(files, chunk_size, chunk_overlap)  # For Chroma as Pinecone splits in upsertion
 
 
 # 3. Store
 
-from setup.openaivariables import embed_model
-from setup.pineconevariables import env, index_name, pine_key
-from store.init_index import create_index, initialize_pinecone
-from store.upserttopinecone import upsert_data_to_index
+print("\n\n\n3. Store:\n\n")
 
-# 3.1 Create Pinecone Index
+# 3.1 create pinecone index
+
+from Setup.pinecone_variables import env, index_name, pine_key
+from Store.init_pinecone_index import create_index, initialize_pinecone
 
 initialize_pinecone(pine_key, env)  # Initializes Pinecone
 
 index = create_index(index_name, 1536, 'cosine')  # Creates index
 
-# 3.2 Upsert to Index
+# 3.2 upsert to pinecone index
 
-upsert_data_to_index(splits, 100, embed_model, index)  # Upserts data to index
+from Setup.openai_variables import embed
+from Store.upsert_to_pinecone import upsert_data_to_index
+
+upsert_data_to_index(textsplits, embed, index)  # Upserts splits to Pinecone index
+
+# 3.3 Create VectorDB's
+
+from Store.create_pineconedb import create_pinecone_vectordb  # Pinecone DB
+
+pinecone_vectordb = create_pinecone_vectordb(index_name, embed.embed_query)  # Initializes pinecone vectorstoredb
+
+from Store.create_chromadb import create_chroma_vectordb  # Chroma DB
+
+chroma_vectordb = create_chroma_vectordb(textsplits, embed)  # Initialize chroma and store docs
 
 
 # 4. Retrieval
 
-from retrieval.vectordb import initialize_vectorstore
-from setup.openaivariables import embed
+print("\n\n\n4. Retrieval:\n\n")
 
-vectorstore_db = initialize_vectorstore(index_name, embed.embed_query)  # Initializes vectorstore
+from Retrieval.pineconeretrieval import pineconeretrieval
+from Retrieval.chromaretrieval import chromaretrieval
 
+query = "H.E.R."  # Query to search for relevant docs
 
-# 5. Generation
+pineconeretriever = pineconeretrieval(pinecone_vectordb, query, "mmr")  # Initialize pinecone retriever with db and number of returned docs (k
 
-from generate.retrievalqachain import create_qa_chain
-from setup.openaivariables import llm
-from setup.qa_variables import chain_type, search_type
-
-qa = create_qa_chain(vectorstore_db, search_type, llm, chain_type)  # Create QA system (vectorstore, reranker, pine_key, llm_model, temp, prompt_type)
+chromaretriever = chromaretrieval(chroma_vectordb, query)  # Initialize chroma retriever with db and number of returned docs (k)
 
 
-# 6. Conversational Agent
+# # 5. Generate
 
-# 6.1 Choose Prompt
+# print("\n\n\n5. Generate:\n\n")
 
-from conversationbot.prompts import get_prompt
-from mainhelper import get_user_prompt
-
-default_prompt = """You are a chatbot that answers questions about local information and sources provided by the user. Mention that you are the default chatbot choice at the start of conversation."""
-
-selected_prompt = get_prompt(get_user_prompt())  # User chooses prompt from prompts.py
-
-system_message = selected_prompt  # Get system message from prompt
-
-# 6.2 Create Agent
-
-from conversationbot.agentsetup import (agent, conversational_memory,
-                                        create_tools)
-from conversationbot.conversationagent import initialize_conversational_agent
-
-conversational_agent = initialize_conversational_agent(agent, create_tools(qa), llm, 
-                                                    conversational_memory, 
-                                                    system_message, True)  # Create conversational agent
+from Generate.retrievalqa_chain import create_retrievalqa_chain  # Retrieval QA Chain
+from HelperFunctions.mainhelper import get_query
+from Setup.openai_variables import llm
 
 
-# MAIN CHATBOT LOOP
+# 5.  Main Loop for Testing GQA Quality of LoadQA and RetrievalQA 
 
-from mainhelper import get_query, get_response
+from HelperFunctions.generatehelper import configure_retrievalqa_chain
 
-if __name__ == "__main__":  # Main prompt loop
+from collections import defaultdict
+
+def main():
+    ratings = {"Pinecone VectorDB": defaultdict(list),
+               "Chroma VectorDB": defaultdict(list)}
+    
     while True:
         query = get_query()
-        if query.lower() in ['quit', 'q', 'exit']:
-            break
-        print(f"Vectorstore Chunks: {vectorstore_db.similarity_search(query, k = 3)}\n\n\n")
-        print(f"RetrievalQAChain Result: {qa.run(query)}\n\n\n")
-        answer = "Result: " + conversational_agent.run(query)
-        if answer:
-            print(f"""MMR Search and Retrieval of Docs: {answer}\n\n\n""")
-            
-print("Chatbot Ended.")
+        if query is None:
+            if any(ratings[db] for db in ratings):  # Check if there are any ratings
+                # Flatten the ratings for easy computation
+                flattened_ratings = {"{} - {}".format(db, method): ratings[db][method] for db in ratings for method in ratings[db]}
+                highest_rated_method = max(flattened_ratings, key=lambda k: sum(flattened_ratings[k]) / len(flattened_ratings[k]))
+                highest_rating = sum(flattened_ratings[highest_rated_method]) / len(flattened_ratings[highest_rated_method])
+                
+                print(f"\nThe highest rated method is '{highest_rated_method}' with an average rating of {highest_rating:.2f}.")
+            else:
+                print("\nNo ratings provided.")
+            return
+        
+        else:
+            while query:
+                print("\nChoose a database to test:")
+                print("1: Pinecone VectorDB + RetrievalQA Chain")
+                print("2: Chroma VectorDB + LoadQA Chain")
+                print("3: Go back to query selection")
+                db_choice = input("\nEnter your Retrieval choice (1-3): ")
+                if db_choice == "1":
+                    retriever = pineconeretriever
+                    chain_type, qa_chain = configure_retrievalqa_chain(create_retrievalqa_chain, llm, retriever)
+                    db_type = "Pinecone VectorDB - " + chain_type
+                elif db_choice == "2":
+                    retriever = chromaretriever
+                    chain_type, qa_chain = configure_retrievalqa_chain(create_retrievalqa_chain, llm, retriever)
+                    db_type = "Chroma VectorDB - " + chain_type
+                elif db_choice == "3":
+                    break
+                else:
+                    print("Invalid choice. Please select between 1-3.")
+                    continue
+                if qa_chain:
+                    answer = qa_chain.run(query)
+                    print(f"\nChain Type: {db_type}")
+                    print(f"Answer: {answer}")
+                    while True:  # Loop to ensure valid input
+                        try:
+                            feedback = int(input("\nHow would you rate the quality of the answer (1-10)? "))
+                            if 1 <= feedback <= 10:
+                                ratings[db_type.split(" - ")[0]][chain_type].append(feedback)
+                                print(f"Thank you for your feedback! You rated the answer a {feedback}.\n")
+                                break  # Exit the loop once valid feedback is received
+                            else:
+                                print("Invalid rating. Please enter a number between 1 and 10.")
+                        except ValueError:  # Handle non-integer inputs
+                            print("Invalid input. Please enter a number between 1 and 10.")
+                            
+        
+main()
 
-index.delete(index_name)  # Delete index to save resources
+index.delete(index_name)  # Delete index
+
+chroma_vectordb.delete_collection()
+chroma_vectordb.persist()

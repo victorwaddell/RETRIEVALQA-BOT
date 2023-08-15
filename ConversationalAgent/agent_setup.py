@@ -2,7 +2,7 @@ from langchain.agents import Tool
 from langchain.agents.types import AgentType
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
 
-from generate.retrievalqachain import retrievalqa_desc  # Imports tool description of QA system
+from Generate.retrievalqa_chain import retrievalqa_desc  # Imports tool description of QA system
 
 conversational_memory = ConversationBufferWindowMemory(memory_key = 'chat_history',  # Creates chain memory 
                                                        k = 5, return_messages = True)
