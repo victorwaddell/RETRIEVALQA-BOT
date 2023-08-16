@@ -21,8 +21,6 @@ print(f"\n\n\n2. Split:\n\n")
 from Setup.split_variables import chunk_size, chunk_overlap
 from Split.split_files import split_files
 
-textsplits = split_files(files, chunk_size, chunk_overlap)  # For Chroma as Pinecone splits in upsertion
-
 
 # 3. Store
 
@@ -42,17 +40,13 @@ index = create_index(index_name, 1536, 'cosine')  # Creates index
 from Setup.openai_variables import embed
 from Store.upsert_to_pinecone import upsert_data_to_index
 
-upsert_data_to_index(textsplits, embed, index)  # Upserts splits to Pinecone index
+upsert_data_to_index(files, embed, index)  # Upserts splits to Pinecone index
 
-# 3.3 Create VectorDB's
+# 3.3 Create VectorDB
 
 from Store.create_pineconedb import create_pinecone_vectordb  # Pinecone DB
 
 pinecone_vectordb = create_pinecone_vectordb(index_name, embed.embed_query)  # Initializes pinecone vectorstoredb
-
-from Store.create_chromadb import create_chroma_vectordb  # Chroma DB
-
-chroma_vectordb = create_chroma_vectordb(textsplits, embed)  # Initialize chroma and store docs
 
 
 # 4. Retrieval
@@ -62,7 +56,7 @@ print("\n\n\n4. Retrieval:\n\n")
 from Retrieval.pineconeretrieval import pineconeretrieval
 from Retrieval.chromaretrieval import chromaretrieval
 
-query = "H.E.R."  # Query to search for relevant docs
+query = "H.E.R."  # Test query to search for relevant docs
 
 pineconeretriever = pineconeretrieval(pinecone_vectordb, query, "mmr")  # Initialize pinecone retriever with db and number of returned docs (k
 
@@ -137,8 +131,8 @@ def main():
                                 print("Invalid rating. Please enter a number between 1 and 10.")
                         except ValueError:  # Handle non-integer inputs
                             print("Invalid input. Please enter a number between 1 and 10.")
-                            
-        
+           
+
 main()
 
 index.delete(index_name)  # Delete index
