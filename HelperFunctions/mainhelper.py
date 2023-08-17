@@ -4,14 +4,12 @@ import traceback
 
 
 def get_query():
-    query = input("Ask a question! (type 'quit', 'q', or 'exit' to quit and see highest rated db and chain): ")
-    if query.lower() in ['quit', 'q', 'exit']:  # Check for quit-related inputs
-        return None
-    if len(query) > 1000:  # Prevent excessively long input
-        print("Your input is too long. Please try again.")
-        return get_query()
-    else:
+    query = input("Ask a question!: ")
+    if 0 < len(query.strip()) <= 1000:  # Valid input
         return str(query)
+    else:  # Invalid input
+        print("Your input is invalid. Please try again.")
+        return get_query()
 
 
 def get_response(query, chattype):  # Choose response type based on user needs

@@ -9,7 +9,7 @@ conversational_memory = ConversationBufferWindowMemory(memory_key = 'chat_histor
 
 agent = AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION
 
-def create_tools(qa_instance):  # Creates tools for conversational agent
-    return [Tool(name = 'RetrievalQA', func = qa_instance.run, 
+def create_tools(retrievalqa_chain):  # Creates tools for conversational agent
+    return [Tool(name = 'RetrievalQA', func = retrievalqa_chain.run, 
                  description = retrievalqa_desc)]
 

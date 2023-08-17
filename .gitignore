@@ -3,5 +3,5 @@ __pycache__
 persist/
 .DS_Store
 .chroma/
-data
+DataDirectory
 db
