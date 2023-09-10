@@ -52,23 +52,27 @@ pineconeretriever = pineconeretrieval(pinecone_vectordb, query, "mmr")  # Initia
 
 # 4. Generate
 
-# print("\n\n\n4. Generate:\n\n")
+print("\n\n\n4. Generate:\n\n")
 
 from Generate.retrievalqa_chain import create_retrievalqa_chain  # Retrieval QA Chain
 from HelperFunctions.generatehelper import configure_retrievalqa_chain
 from HelperFunctions.mainhelper import get_query
 from Setup.openai_variables import llm
 
-retrievalqa_chain = configure_retrievalqa_chain(create_retrievalqa_chain, llm, pineconeretriever)  # Retriever user's preferred chain type from input
+#retrievalqa_chain = configure_retrievalqa_chain(create_retrievalqa_chain, llm, pineconeretriever)  # Retriever user's preferred chain type from input
+
+retrievalqa_chain = create_retrievalqa_chain(llm, 'stuff', pineconeretriever)
 
 
 # 5.  Main Loop for Testing GQA Quality of LoadQA and RetrievalQA 
 
-from ConversationalAgent.prompts import get_prompt
+from ConversationalAgent.prompts import get_prompt, prompts_dict
 from HelperFunctions.agenthelper import get_user_prompt
 
 
-selected_prompt = get_prompt(get_user_prompt())  # User chooses prompt from prompts.py
+#selected_prompt = get_prompt(get_user_prompt())  # User chooses prompt from prompts.py
+
+selected_prompt = prompts_dict.get("strictlocal_chatagent")
 
 system_message = selected_prompt  # Get system message from prompt
 
@@ -84,67 +88,65 @@ conversational_agent = initialize_conversational_agent(agent, create_tools(retri
 
 # MAIN CHATBOT LOOP
 
-from HelperFunctions.mainhelper import get_query
 import gradio as gr
-
-title = """
-<div style="text-align: center;max-width: 700px;">
-    <h1>Chat with PDF</h1>
-    <p style="text-align: center;">Upload a .PDF from your computer, click the "Load PDF to LangChain" button, <br />
-    when everything is ready, you can start asking questions about the pdf ;)</p>
-    <a style="display:inline-block; margin-left: 1em" href="https://huggingface.co/spaces/fffiloni/langchain-chat-with-pdf?duplicate=true"><img src="https://img.shields.io/badge/-Duplicate%20Space%20to%20skip%20the%20queue-blue?labelColor=white&style=flat&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAP5JREFUOE+lk7FqAkEURY+ltunEgFXS2sZGIbXfEPdLlnxJyDdYB62sbbUKpLbVNhyYFzbrrA74YJlh9r079973psed0cvUD4A+4HoCjsA85X0Dfn/RBLBgBDxnQPfAEJgBY+A9gALA4tcbamSzS4xq4FOQAJgCDwV2CPKV8tZAJcAjMMkUe1vX+U+SMhfAJEHasQIWmXNN3abzDwHUrgcRGmYcgKe0bxrblHEB4E/pndMazNpSZGcsZdBlYJcEL9Afo75molJyM2FxmPgmgPqlWNLGfwZGG6UiyEvLzHYDmoPkDDiNm9JR9uboiONcBXrpY1qmgs21x1QwyZcpvxt9NS09PlsPAAAAAElFTkSuQmCC&logoWidth=14" alt="Duplicate Space"></a>
-</div>
-"""
-
-def bot(query):
-    print("Debug: Entering bot function")
-
-    if not query:
-        print("Debug: query is None or empty!")
-        return "Please enter a valid query."
-
-    print(f"Debug: Starting retrieval for query: {query}")
-    retrieval_result = pineconeretrieval(pinecone_vectordb, query, "mmr")
-    print("Debug: Retrieval completed")
-
-    print("Debug: Starting conversational agent")
-    agent_result = conversational_agent.run(query)
-    print("Debug: Conversational agent completed")
-
-    return f"Vectorstore Chunks: {retrieval_result}\nAgent Result: {agent_result}"
+import random
+import time
 
 
+# Conversational agent
+def chat_interface():
+    with gr.Blocks() as demo:
+        chatbot = gr.Chatbot()
+        msg = gr.Textbox()
+        clear = gr.Button("Clear")
 
-def update_chatbot(query=None):
-    print("Debug: update_chatbot triggered")  # Add this line
-    global chat_history  # Use the global chat_history list
-    if query is None:
-        print("Debug: query is None")
-    else:
-        print(f"Debug: query is {query}")
+        def user(user_message, history):
+            return "", history + [[user_message, None]]
 
-    if query:
-        print("Debug: About to call bot function")
-        chat_response = bot(query)
-        print("Debug: Bot function returned")
-        print(f"Debug: Chat response is {chat_response}")
+        def bot(history):
+            user_message = history[-1][0]
+            bot_message = conversational_agent.run(user_message)  # Replace with your actual function call
+            history[-1][1] = ""
+            for character in bot_message:
+                history[-1][1] += character
+                time.sleep(0.01)
+                yield history
 
-        # Your chatbot update logic
-        print("Debug: About to update chatbot")
-        chatbot.set_message([
-            (entry["message"], entry["role"]) for entry in chat_history])
-        print("Debug: Chatbot updated")
+        msg.submit(user, [msg, chatbot], [msg, chatbot], queue = False).then(bot, chatbot, chatbot)
+        clear.click(lambda: None, None, chatbot, queue=False)
+        
+    return demo
 
-# Gradio Interface
-with gr.Blocks() as app:
-    chatbot = gr.Chatbot([], height=350)
-    question = gr.Textbox(label="Question", placeholder="Type your question and hit Enter")
-    submit_btn = gr.Button("Send message")
+# Text summarization function (dummy function)
+def summarize(text):
+    return f"Summary: {text[:20]}..."
 
-    # Link the submit and click actions to the update_chatbot function
-    question.submit(update_chatbot)
-    submit_btn.click(update_chatbot)
+# Basic chatbot Interface
+chatbot_interface = gr.Interface(
+    fn=chat_interface,
+    inputs="text",
+    outputs="text",
+    title="Local Data Chat Agent",
+    description="This is a basic chat agent that relies on locally stored data."
+)
 
-app.launch()
+# Text Summarization Interface
+summarization_interface = gr.Interface(
+    fn=summarize,
+    inputs="text",
+    outputs="text",
+    title="Text Summarization",
+    description="This is a text summarization tool."
+)
+
+# Creating Tabbed Interface
+tabbed_interface = gr.TabbedInterface(
+    [chatbot_interface, summarization_interface],
+    ["Basic Chatbot", "Text Summarization"]
+)
+
+# Launch the Tabbed Interface
+tabbed_interface.launch()
+
 
 index.delete(index_name)  # Delete index
