@@ -92,61 +92,35 @@ import gradio as gr
 import random
 import time
 
+with gr.Blocks() as demo:
+    chatbot = gr.Chatbot()
+    msg = gr.Textbox()
+    submit_button = gr.Button("Submit")
+    clear = gr.Button("Clear")
 
-# Conversational agent
-def chat_interface():
-    with gr.Blocks() as demo:
-        chatbot = gr.Chatbot()
-        msg = gr.Textbox()
-        clear = gr.Button("Clear")
+    def user(user_message, history):
+        return "", history + [[user_message, None]]
 
-        def user(user_message, history):
-            return "", history + [[user_message, None]]
-
-        def bot(history):
-            user_message = history[-1][0]
-            bot_message = conversational_agent.run(user_message)  # Replace with your actual function call
-            history[-1][1] = ""
-            for character in bot_message:
-                history[-1][1] += character
-                time.sleep(0.01)
-                yield history
-
-        msg.submit(user, [msg, chatbot], [msg, chatbot], queue = False).then(bot, chatbot, chatbot)
-        clear.click(lambda: None, None, chatbot, queue=False)
+    def bot(history):
+        # Get the last user message from the history
+        user_message = history[-1][0]
         
-    return demo
+        # Generate response using your conversational agent
+        bot_message = conversational_agent.run(user_message)
+        
+        # Update the last entry in history with the bot's message
+        history[-1][1] = ""
+        for character in bot_message:
+            history[-1][1] += character
+            time.sleep(0.01)
+            yield history
 
-# Text summarization function (dummy function)
-def summarize(text):
-    return f"Summary: {text[:20]}..."
+    submit_button.click(user, [msg, chatbot], [msg, chatbot]).then(bot, chatbot, chatbot)
+    clear.click(lambda: None, None, chatbot, queue = False)
+    
+demo.queue()
+demo.launch()
 
-# Basic chatbot Interface
-chatbot_interface = gr.Interface(
-    fn=chat_interface,
-    inputs="text",
-    outputs="text",
-    title="Local Data Chat Agent",
-    description="This is a basic chat agent that relies on locally stored data."
-)
-
-# Text Summarization Interface
-summarization_interface = gr.Interface(
-    fn=summarize,
-    inputs="text",
-    outputs="text",
-    title="Text Summarization",
-    description="This is a text summarization tool."
-)
-
-# Creating Tabbed Interface
-tabbed_interface = gr.TabbedInterface(
-    [chatbot_interface, summarization_interface],
-    ["Basic Chatbot", "Text Summarization"]
-)
-
-# Launch the Tabbed Interface
-tabbed_interface.launch()
 
 
 index.delete(index_name)  # Delete index
